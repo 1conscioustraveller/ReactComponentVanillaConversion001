@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Particle Text Effect</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: black;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            border: 1px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            max-width: 100%;
+            height: auto;
+        }
+        .info {
+            margin-top: 16px;
+            color: white;
+            text-align: center;
+            max-width: 500px;
+        }
+        .info p:first-child {
+            margin-bottom: 8px;
+        }
+        .info p:last-child {
+            color: #aaa;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div class="info">
+        <p>Particle Text Effect</p>
+        <p style="color: #aaa; font-size: 12px;">Right-click and hold while moving mouse to destroy particles • Words change automatically every 4 seconds</p>
+    </div>
+
+    <script>
+        class Particle {
+            constructor() {
+                this.pos = { x: 0, y: 0 };
+                this.vel = { x: 0, y: 0 };
+                this.acc = { x: 0, y: 0 };
+                this.target = { x: 0, y: 0 };
+
+                this.closeEnoughTarget = 100;
+                this.maxSpeed = 1.0;
+                this.maxForce = 0.1;
+                this.particleSize = 10;
+                this.isKilled = false;
+
+                this.startColor = { r: 0, g: 0, b: 0 };
+                this.targetColor = { r: 0, g: 0, b: 0 };
+                this.colorWeight = 0;
+                this.colorBlendRate = 0.01;
+            }
+
+            move() {
+                // Check if particle is close enough to its target to slow down
+                let proximityMult = 1;
+                const distance = Math.sqrt(Math.pow(this.pos.x - this.target.x, 2) + Math.pow(this.pos.y - this.target.y, 2));
+
+                if (distance < this.closeEnoughTarget) {
+                    proximityMult = distance / this.closeEnoughTarget;
+                }
+
+                // Add force towards target
+                const towardsTarget = {
+                    x: this.target.x - this.pos.x,
+                    y: this.target.y - this.pos.y,
+                };
+
+                const magnitude = Math.sqrt(towardsTarget.x * towardsTarget.x + towardsTarget.y * towardsTarget.y);
+                if (magnitude > 0) {
+                    towardsTarget.x = (towardsTarget.x / magnitude) * this.maxSpeed * proximityMult;
+                    towardsTarget.y = (towardsTarget.y / magnitude) * this.maxSpeed * proximityMult;
+                }
+
+                const steer = {
+                    x: towardsTarget.x - this.vel.x,
+                    y: towardsTarget.y - this.vel.y,
+                };
+
+                const steerMagnitude = Math.sqrt(steer.x * steer.x + steer.y * steer.y);
+                if (steerMagnitude > 0) {
+                    steer.x = (steer.x / steerMagnitude) * this.maxForce;
+                    steer.y = (steer.y / steerMagnitude) * this.maxForce;
+                }
+
+                this.acc.x += steer.x;
+                this.acc.y += steer.y;
+
+                // Move particle
+                this.vel.x += this.acc.x;
+                this.vel.y += this.acc.y;
+                this.pos.x += this.vel.x;
+                this.pos.y += this.vel.y;
+                this.acc.x = 0;
+                this.acc.y = 0;
+            }
+
+            draw(ctx, drawAsPoints) {
+                // Blend towards target color
+                if (this.colorWeight < 1.0) {
+                    this.colorWeight = Math.min(this.colorWeight + this.colorBlendRate, 1.0);
+                }
+
+                // Calculate current color
+                const currentColor = {
+                    r: Math.round(this.startColor.r + (this.targetColor.r - this.startColor.r) * this.colorWeight),
+                    g: Math.round(this.startColor.g + (this.targetColor.g - this.startColor.g) * this.colorWeight),
+                    b: Math.round(this.startColor.b + (this.targetColor.b - this.startColor.b) * this.colorWeight),
+                };
+
+                if (drawAsPoints) {
+                    ctx.fillStyle = `rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b})`;
+                    ctx.fillRect(this.pos.x, this.pos.y, 2, 2);
+                } else {
+                    ctx.fillStyle = `rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b})`;
+                    ctx.beginPath();
+                    ctx.arc(this.pos.x, this.pos.y, this.particleSize / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            kill(width, height) {
+                if (!this.isKilled) {
+                    // Set target outside the scene
+                    const randomPos = generateRandomPos(width / 2, height / 2, (width + height) / 2);
+                    this.target.x = randomPos.x;
+                    this.target.y = randomPos.y;
+
+                    // Begin blending color to black
+                    this.startColor = {
+                        r: this.startColor.r + (this.targetColor.r - this.startColor.r) * this.colorWeight,
+                        g: this.startColor.g + (this.targetColor.g - this.startColor.g) * this.colorWeight,
+                        b: this.startColor.b + (this.targetColor.b - this.startColor.b) * this.colorWeight,
+                    };
+                    this.targetColor = { r: 0, g: 0, b: 0 };
+                    this.colorWeight = 0;
+
+                    this.isKilled = true;
+                }
+            }
+        }
+
+        // Initialize canvas
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 1000;
+        canvas.height = 500;
+
+        // Global variables
+        const DEFAULT_WORDS = ["HELLO", "21st.dev", "ParticleTextEffect", "BY", "KAINXU"];
+        const particles = [];
+        let frameCount = 0;
+        let wordIndex = 0;
+        const mouse = { x: 0, y: 0, isPressed: false, isRightClick: false };
+        const pixelSteps = 6;
+        const drawAsPoints = true;
+        let animationId;
+
+        // Helper function to generate random position
+        function generateRandomPos(x, y, mag) {
+            const randomX = Math.random() * 1000;
+            const randomY = Math.random() * 500;
+
+            const direction = {
+                x: randomX - x,
+                y: randomY - y,
+            };
+
+            const magnitude = Math.sqrt(direction.x * direction.x + direction.y * direction.y);
+            if (magnitude > 0) {
+                direction.x = (direction.x / magnitude) * mag;
+                direction.y = (direction.y / magnitude) * mag;
+            }
+
+            return {
+                x: x + direction.x,
+                y: y + direction.y,
+            };
+        }
+
+        // Function to set up particles for the next word
+        function nextWord(word) {
+            // Create off-screen canvas for text rendering
+            const offscreenCanvas = document.createElement("canvas");
+            offscreenCanvas.width = canvas.width;
+            offscreenCanvas.height = canvas.height;
+            const offscreenCtx = offscreenCanvas.getContext("2d");
+
+            // Draw text
+            offscreenCtx.fillStyle = "white";
+            offscreenCtx.font = "bold 100px Arial";
+            offscreenCtx.textAlign = "center";
+            offscreenCtx.textBaseline = "middle";
+            offscreenCtx.fillText(word, canvas.width / 2, canvas.height / 2);
+
+            const imageData = offscreenCtx.getImageData(0, 0, canvas.width, canvas.height);
+            const pixels = imageData.data;
+
+            // Generate new color
+            const newColor = {
+                r: Math.random() * 255,
+                g: Math.random() * 255,
+                b: Math.random() * 255,
+            };
+
+            let particleIndex = 0;
+
+            // Collect coordinates
+            const coordsIndexes = [];
+            for (let i = 0; i < pixels.length; i += pixelSteps * 4) {
+                coordsIndexes.push(i);
+            }
+
+            // Shuffle coordinates for fluid motion
+            for (let i = coordsIndexes.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [coordsIndexes[i], coordsIndexes[j]] = [coordsIndexes[j], coordsIndexes[i]];
+            }
+
+            for (const coordIndex of coordsIndexes) {
+                const pixelIndex = coordIndex;
+                const alpha = pixels[pixelIndex + 3];
+
+                if (alpha > 0) {
+                    const x = (pixelIndex / 4) % canvas.width;
+                    const y = Math.floor(pixelIndex / 4 / canvas.width);
+
+                    let particle;
+
+                    if (particleIndex < particles.length) {
+                        particle = particles[particleIndex];
+                        particle.isKilled = false;
+                        particleIndex++;
+                    } else {
+                        particle = new Particle();
+
+                        const randomPos = generateRandomPos(canvas.width / 2, canvas.height / 2, (canvas.width + canvas.height) / 2);
+                        particle.pos.x = randomPos.x;
+                        particle.pos.y = randomPos.y;
+
+                        particle.maxSpeed = Math.random() * 6 + 4;
+                        particle.maxForce = particle.maxSpeed * 0.05;
+                        particle.particleSize = Math.random() * 6 + 6;
+                        particle.colorBlendRate = Math.random() * 0.0275 + 0.0025;
+
+                        particles.push(particle);
+                    }
+
+                    // Set color transition
+                    particle.startColor = {
+                        r: particle.startColor.r + (particle.targetColor.r - particle.startColor.r) * particle.colorWeight,
+                        g: particle.startColor.g + (particle.targetColor.g - particle.startColor.g) * particle.colorWeight,
+                        b: particle.startColor.b + (particle.targetColor.b - particle.startColor.b) * particle.colorWeight,
+                    };
+                    particle.targetColor = newColor;
+                    particle.colorWeight = 0;
+
+                    particle.target.x = x;
+                    particle.target.y = y;
+                }
+            }
+
+            // Kill remaining particles
+            for (let i = particleIndex; i < particles.length; i++) {
+                particles[i].kill(canvas.width, canvas.height);
+            }
+        }
+
+        // Animation function
+        function animate() {
+            // Background with motion blur
+            ctx.fillStyle = "rgba(0, 0, 0, 0.1)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Update and draw particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const particle = particles[i];
+                particle.move();
+                particle.draw(ctx, drawAsPoints);
+
+                // Remove dead particles that are out of bounds
+                if (particle.isKilled) {
+                    if (
+                        particle.pos.x < 0 ||
+                        particle.pos.x > canvas.width ||
+                        particle.pos.y < 0 ||
+                        particle.pos.y > canvas.height
+                    ) {
+                        particles.splice(i, 1);
+                    }
+                }
+            }
+
+            // Handle mouse interaction
+            if (mouse.isPressed && mouse.isRightClick) {
+                particles.forEach((particle) => {
+                    const distance = Math.sqrt(
+                        Math.pow(particle.pos.x - mouse.x, 2) + Math.pow(particle.pos.y - mouse.y, 2)
+                    );
+                    if (distance < 50) {
+                        particle.kill(canvas.width, canvas.height);
+                    }
+                });
+            }
+
+            // Auto-advance words
+            frameCount++;
+            if (frameCount % 240 === 0) {
+                wordIndex = (wordIndex + 1) % DEFAULT_WORDS.length;
+                nextWord(DEFAULT_WORDS[wordIndex]);
+            }
+
+            animationId = requestAnimationFrame(animate);
+        }
+
+        // Mouse event handlers
+        function handleMouseDown(e) {
+            mouse.isPressed = true;
+            mouse.isRightClick = e.button === 2;
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.clientX - rect.left;
+            mouse.y = e.clientY - rect.top;
+        }
+
+        function handleMouseUp() {
+            mouse.isPressed = false;
+            mouse.isRightClick = false;
+        }
+
+        function handleMouseMove(e) {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.clientX - rect.left;
+            mouse.y = e.clientY - rect.top;
+        }
+
+        function handleContextMenu(e) {
+            e.preventDefault();
+        }
+
+        // Add event listeners
+        canvas.addEventListener("mousedown", handleMouseDown);
+        canvas.addEventListener("mouseup", handleMouseUp);
+        canvas.addEventListener("mousemove", handleMouseMove);
+        canvas.addEventListener("contextmenu", handleContextMenu);
+
+        // Initialize with first word and start animation
+        nextWord(DEFAULT_WORDS[0]);
+        animate();
+    </script>
+</body>
+</html>
